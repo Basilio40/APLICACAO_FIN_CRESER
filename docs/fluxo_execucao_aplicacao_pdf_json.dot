@@ -1,0 +1,74 @@
+digraph FluxoExecucao {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="Segoe UI", fontsize=11];
+    edge [fontname="Segoe UI", fontsize=10];
+
+    // Cores por fase
+    node [fillcolor="#E3F2FD"]; // Entrada
+    Start [label="Início\n(run.bat / run_producao.bat / run_simular.bat)"];
+    Input [label="Pasta data/input/\nPDFs a processar"];
+
+    node [fillcolor="#C8E6C9"]; // Extração PDF → JSON
+    Parser [label="1. ParserTool\nExtrai texto bruto do PDF"];
+    CacheCheck [label="2. AplicaçãoPDFJSON\nConsulta base JSON\noutput/db/extracao_json/"];
+    Cached [label="JSON em cache?"];
+    UseCache [label="Usa JSON\ncacheado"];
+    LLMExtract [label="3. ExtratorPDFJSON\nLLM extrai JSON\n(Boleto + DANFE/NF-e)"];
+    SaveJSON [label="4. RepositorioJSON\nSalva JSON na base\n(hash SHA256)"];
+
+    node [fillcolor="#FFF9C4"]; // Processamento financeiro
+    SkillExtract [label="5. SkillExtract\nConsome JSON estruturado\n+ fallback texto"];
+    IdentifyService [label="6. RecuperadorRAG\nIdentifica serviço/\nCentro de Custo"];
+    Categorize [label="7. SkillCategorize\nCategoriza itens"];
+    Route [label="8. SkillRoute\nDefine conta bancária"];
+    Validate [label="9. Governanca\nValida lançamento"];
+
+    node [fillcolor="#E0E0E0"]; // Saída
+    CreateFolders [label="10. FileSystemTool\nCria pasta do serviço\noutput/servicos/<ID>/"];
+    CopySpreadsheet [label="Copia planilha\nmodelo ContaAzul"];
+    WriteExcel [label="11. ExcelTool\nEscreve lançamentos"];
+    MoveNF [label="12. FileSystemTool\nMove NF para\nNFs_Processadas/"];
+    SaveLog [label="13. Salva log\noutput/logs/"];
+    End [label="Fim"];
+
+    node [fillcolor="#FFCDD2"]; // Erro
+    MoveRevisar [label="Move para\noutput/A_Revisar/"];
+
+    // Fluxo
+    Start -> Input;
+    Input -> Parser [label="Para cada PDF"];
+    Parser -> CacheCheck;
+    CacheCheck -> Cached;
+    Cached -> UseCache [label="Sim"];
+    Cached -> LLMExtract [label="Não"];
+    LLMExtract -> SaveJSON;
+    SaveJSON -> SkillExtract;
+    UseCache -> SkillExtract;
+
+    SkillExtract -> IdentifyService;
+    IdentifyService -> Categorize;
+    Categorize -> Route;
+    Route -> Validate;
+
+    Validate -> CreateFolders [label="Válido"];
+    Validate -> MoveRevisar [label="Inválido\n(dados ausentes)"];
+
+    CreateFolders -> CopySpreadsheet;
+    CopySpreadsheet -> WriteExcel;
+    WriteExcel -> MoveNF;
+    MoveNF -> SaveLog;
+    MoveRevisar -> SaveLog;
+    SaveLog -> End;
+
+    // Destaques
+    subgraph cluster_pdf_json {
+        label="Camada PDF → JSON (nova)";
+        style=dashed;
+        color="#4CAF50";
+        CacheCheck;
+        Cached;
+        UseCache;
+        LLMExtract;
+        SaveJSON;
+    }
+}

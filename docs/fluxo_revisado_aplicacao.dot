@@ -1,0 +1,98 @@
+digraph FluxoRevisado {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="Segoe UI", fontsize=11];
+    edge [fontname="Segoe UI", fontsize=10];
+
+    // Entrada
+    node [fillcolor="#E3F2FD"];
+    Start [label="Início\n(run.bat / run_producao.bat / run_simular.bat\nreprocessar_planilhas.py)"];
+    Input [label="Pasta data/input/\nou NFs_Processadas/\nPDFs a processar"];
+
+    // Extração PDF → JSON
+    node [fillcolor="#C8E6C9"];
+    Parser [label="1. ParserTool\nExtrai texto bruto do PDF"];
+    CacheCheck [label="2. AplicaçãoPDFJSON\nConsulta base JSON\noutput/db/extracao_json/"];
+    Cached [shape=diamond, fillcolor="#FFF59D", label="JSON em\ncache?"];
+    UseCache [label="Usa JSON\ncacheado"];
+    LLMExtract [label="3. ExtratorPDFJSON\nLLM extrai JSON\n(Boleto + DANFE/NF-e)"];
+    SaveJSON [label="4. RepositorioJSON\nSalva JSON na base\n(hash SHA256)"];
+
+    // Processamento financeiro
+    node [fillcolor="#FFF9C4"];
+    SkillExtract [label="5. SkillExtract\nConsome JSON estruturado\n+ fallback texto + validações"];
+    Fallbacks [label="6. Fallbacks\nfornecedor pelo nome do arquivo\nCNPJ pelo cadastro"];
+    IdentifyService [label="7. RecuperadorRAG\nIdentifica serviço/\nCentro de Custo"];
+    Categorize [label="8. SkillCategorize\nCategoriza itens"];
+    CatFallback [label="Fallback categoria\npelo nome do arquivo"];
+    Route [label="9. SkillRoute\nConta Corrente da base"];
+    Montagem [label="10. Montagem\nvalor negativo + conta CC"];
+    Validate [label="11. Governanca\nValida lançamento"];
+
+    // Saída
+    node [fillcolor="#E0E0E0"];
+    CreateFolders [label="12. FileSystemTool\nCria pasta do serviço\noutput/servicos/<ID>/"];
+    CopySpreadsheet [label="Copia planilha\nmodelo ContaAzul"];
+    WriteExcel [label="13. ExcelTool\nEscreve lançamentos"];
+    MoveNF [label="14. FileSystemTool\nMove NF para\nNFs_Processadas/"];
+    SaveLog [label="15. Salva log\noutput/logs/"];
+    End [label="Fim"];
+
+    // Erro
+    node [fillcolor="#FFCDD2"];
+    MoveRevisar [label="Move para\noutput/A_Revisar/"];
+
+    // Fluxo
+    Start -> Input;
+    Input -> Parser [label="Para cada PDF"];
+    Parser -> CacheCheck;
+    CacheCheck -> Cached;
+    Cached -> UseCache [label="Sim"];
+    Cached -> LLMExtract [label="Não"];
+    LLMExtract -> SaveJSON;
+    SaveJSON -> SkillExtract;
+    UseCache -> SkillExtract;
+
+    SkillExtract -> Fallbacks;
+    Fallbacks -> IdentifyService;
+    IdentifyService -> Categorize;
+    Categorize -> CatFallback;
+    CatFallback -> Route;
+    Route -> Montagem;
+    Montagem -> Validate;
+
+    Validate -> CreateFolders [label="Válido"];
+    Validate -> MoveRevisar [label="Inválido\n(dados ausentes)"];
+
+    CreateFolders -> CopySpreadsheet;
+    CopySpreadsheet -> WriteExcel;
+    WriteExcel -> MoveNF;
+    MoveNF -> SaveLog;
+    MoveRevisar -> SaveLog;
+    SaveLog -> End;
+
+    // Destaques
+    subgraph cluster_pdf_json {
+        label="Camada PDF → JSON";
+        style=dashed;
+        color="#4CAF50";
+        CacheCheck;
+        Cached;
+        UseCache;
+        LLMExtract;
+        SaveJSON;
+    }
+
+    subgraph cluster_skills {
+        label="Skills e Regras";
+        style=dashed;
+        color="#2196F3";
+        SkillExtract;
+        Fallbacks;
+        IdentifyService;
+        Categorize;
+        CatFallback;
+        Route;
+        Montagem;
+        Validate;
+    }
+}
